@@ -3,52 +3,41 @@ name: Build|Test|Run
 on: [push, pull_request]
 
 jobs:
- linux-gcc-build:
+  linux-gcc-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
-      
-      - name: Build Kokkos with OpenMP
-        shell: bash
-        run: |
-          cd 3rdparty/kokkos
-          mkdir build
-          cd build
-          cmake .. \
-              -DCMAKE_CXX_COMPILER=g++ \
-              -DCMAKE_C_COMPILER=gcc \
-              -DKokkos_ENABLE_OPENMP=ON
-          make -j4
-          cd ../../..
-      
-      - name: Build FDTD with GCC
-        shell: bash
-        run: |
-          export CMAKE_BUILD_PARALLEL_LEVEL=4
-          mkdir build
-          cmake \
-              -DCMAKE_C_COMPILER=gcc \
-              -DCMAKE_CXX_COMPILER=g++ \
-              -B ${PWD}/build
-          cmake --build ${PWD}/build --config Release
-          find ${PWD}/build -name test_FDTD_method
-      - name: Run tests with GCC
-        shell: bash
-        run: |
-          ${PWD}/build/unit-tests/test_FDTD_method --gtest_repeat=2 --gtest_break_on_failure
+          submodules: recursive
 
-      - name: Run kokkos_sample
-        shell: bash
+      - name: Build Kokkos with OpenMP
         run: |
-          find ${PWD}/build -name kokkos_sample
-          ${PWD}/bin/kokkos_sample 512 25
-      
-      - name: Run sample
-        shell: bash
+          cmake -S 3rdparty/kokkos -B 3rdparty/kokkos/build \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_C_COMPILER=gcc \
+            -DKokkos_ENABLE_OPENMP=ON
+          cmake --build 3rdparty/kokkos/build --parallel 4
+
+      - name: Configure FDTD implementations
         run: |
-          ${PWD}/bin/sample 512 25
+          cmake -S . -B build \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++
+
+      - name: Build FDTD implementations
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run OpenMP tests
+        run: ./build/fdtd-openmp/test_FDTD_method --gtest_repeat=2 --gtest_break_on_failure
+
+      - name: Run Kokkos tests
+        run: ./build/fdtd-kokkos/test_FDTD_method_kokkos --gtest_repeat=2 --gtest_break_on_failure
+
+      - name: Run OpenMP sample
+        run: ./build/bin/sample 512 25
+
+      - name: Run Kokkos sample
+        run: ./build/bin/kokkos_sample 512 25
 
       - name: Install Intel OneAPI (ifort)
         run: |
@@ -61,14 +50,8 @@ jobs:
         shell: bash
         run: |
           source /opt/intel/oneapi/setvars.sh intel64
-
-          echo "--- Verifying installation ---"
           which ifx
           ifx -v
-
-          echo "--- Compiling Coarray program ---"
           ifx -coarray ${PWD}/coarray/fdtd.F90 -o fdtd
-
-          echo "--- Running Coarray program ---"
           export FOR_COARRAY_NUM_IMAGES=4
           ${PWD}/fdtd
