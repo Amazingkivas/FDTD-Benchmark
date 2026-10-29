@@ -4,7 +4,7 @@ CUDA implementation of the FDTD method for Maxwell's equations using double prec
 
 ## Requirements
 
-- CUDA Toolkit 13.0 or compatible
+- CUDA Toolkit 12.3 or compatible
 - CMake 3.18+
 - NVIDIA GPU
 
