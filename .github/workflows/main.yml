@@ -18,13 +18,13 @@ jobs:
             -DKokkos_ENABLE_OPENMP=ON
           cmake --build 3rdparty/kokkos/build --parallel 4
 
-      - name: Configure FDTD implementations
+      - name: Configure OpenMP and Kokkos
         run: |
           cmake -S . -B build \
-            -DCMAKE_C_COMPILER=gcc \
+            -DFDTD_BACKEND=OPENMP_KOKKOS \
             -DCMAKE_CXX_COMPILER=g++
 
-      - name: Build FDTD implementations
+      - name: Build OpenMP and Kokkos
         run: cmake --build build --config Release --parallel 4
 
       - name: Run OpenMP tests
@@ -52,6 +52,6 @@ jobs:
           source /opt/intel/oneapi/setvars.sh intel64
           which ifx
           ifx -v
-          ifx -coarray ${PWD}/coarray/fdtd.F90 -o fdtd
+          ifx -coarray ${PWD}/fdtd-coarray/fdtd.F90 -o fdtd
           export FOR_COARRAY_NUM_IMAGES=4
           ${PWD}/fdtd

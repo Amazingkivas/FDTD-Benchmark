@@ -1,12 +1,15 @@
 # FDTD Benchmark
 
-This repository contains independent implementations of the finite-difference time-domain (FDTD) method using OpenMP and Kokkos, as well as a separate Coarray Fortran implementation.
+This repository contains independent implementations of the finite-difference time-domain (FDTD) method for Maxwell's equations.
 
 ## Repository layout
 
-- `fdtd-openmp/` — OpenMP implementation, its headers, tests, and sample.
-- `fdtd-kokkos/` — Kokkos implementation, its headers, tests, and sample.
-- `coarray/` — Coarray Fortran implementation.
+- `fdtd-openmp/` — OpenMP implementation, unit tests, and sample.
+- `fdtd-kokkos/` — Kokkos implementation, unit tests, and sample.
+- `fdtd-sycl/` — SYCL implementation and executable.
+- `fdtd-cuda/` — CUDA implementation and executable.
+- `fdtd-coarray/` — Coarray Fortran implementation.
+- `scripts/` — Python visualization scripts.
 - `3rdparty/` — GoogleTest and Kokkos git submodules.
 - `animations/` — visualization assets.
 
@@ -25,7 +28,19 @@ If the repository was cloned without submodules, initialize them with:
 git submodule update --init --recursive
 ```
 
-## Build
+## Select a backend
+
+The root CMake project builds exactly one backend configuration at a time. The available values of `FDTD_BACKEND` are:
+
+| Value | Implementations built | Toolchain |
+|---|---|---|
+| `OPENMP_KOKKOS` | OpenMP and Kokkos | C++ compiler, OpenMP, Kokkos |
+| `SYCL` | SYCL only | Intel oneAPI DPC++ (`icpx`) |
+| `CUDA` | CUDA only | C++ compiler and NVIDIA CUDA Toolkit |
+
+Each backend should use its own build directory. This avoids reusing a CMake cache configured for a different compiler or GPU toolchain.
+
+### OpenMP and Kokkos
 
 Build Kokkos with the OpenMP execution space:
 
@@ -35,31 +50,71 @@ cmake -S 3rdparty/kokkos -B 3rdparty/kokkos/build \
 cmake --build 3rdparty/kokkos/build --parallel
 ```
 
-Configure and build both implementations from the repository root:
+Configure and build the OpenMP and Kokkos implementations:
 
 ```bash
-cmake -S . -B build
-cmake --build build --parallel
+cmake -S . -B build-openmp-kokkos -DFDTD_BACKEND=OPENMP_KOKKOS
+cmake --build build-openmp-kokkos --parallel
 ```
 
-The build produces separate test executables and samples:
-
-- `build/fdtd-openmp/test_FDTD_method`
-- `build/fdtd-kokkos/test_FDTD_method_kokkos`
-- `build/bin/sample`
-- `build/bin/kokkos_sample`
-
-## Run tests
+Run unit tests and samples:
 
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --test-dir build-openmp-kokkos --output-on-failure
+./build-openmp-kokkos/bin/sample 512 25
+./build-openmp-kokkos/bin/kokkos_sample 512 25
 ```
 
-## Run samples
+### SYCL
+
+Configure with the Intel oneAPI DPC++ compiler:
 
 ```bash
-./build/bin/sample 512 25
-./build/bin/kokkos_sample 512 25
+source /opt/intel/oneapi/setvars.sh
+cmake -S . -B build-sycl \
+    -DFDTD_BACKEND=SYCL \
+    -DCMAKE_CXX_COMPILER=icpx \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build-sycl --parallel
+```
+
+Run:
+
+```bash
+./build-sycl/bin/run_sycl [grid_size] [iterations]
+```
+
+The implementation selects a GPU when available. Set `FDTD_SYCL_DEVICE=cpu`, `gpu`, or `default` to choose a device explicitly.
+
+### CUDA
+
+Configure and build with the NVIDIA CUDA Toolkit:
+
+```bash
+cmake -S . -B build-cuda \
+    -DFDTD_BACKEND=CUDA \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CUDA_ARCHITECTURES=80
+cmake --build build-cuda --parallel
+```
+
+Architecture `80` targets NVIDIA A100. Set `CMAKE_CUDA_ARCHITECTURES` to match your GPU.
+
+Run:
+
+```bash
+./build-cuda/bin/run_cuda [grid_size] [iterations]
+```
+
+### Coarray Fortran
+
+The Coarray implementation is built separately from the CMake backend selection. For the Intel oneAPI compiler:
+
+```bash
+source /opt/intel/oneapi/setvars.sh
+ifx -coarray fdtd-coarray/fdtd.F90 -o fdtd
+export FOR_COARRAY_NUM_IMAGES=4
+./fdtd
 ```
 
 ## Visualization
