@@ -1,4 +1,4 @@
-name: Build|Test|Run
+name: Testing
 
 on: [push, pull_request]
 
