@@ -1,3 +1,5 @@
+[![Testing](https://github.com/Amazingkivas/FDTD-Benchmark/actions/workflows/main.yml/badge.svg)](https://github.com/Amazingkivas/FDTD-Benchmark/actions/workflows/main.yml)
+
 # FDTD Benchmark
 
 This repository contains independent implementations of the finite-difference time-domain (FDTD) method for Maxwell's equations.
