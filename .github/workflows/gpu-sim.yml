@@ -1,0 +1,97 @@
+name: CUDA sample (simulated H100)
+
+# Optional, non-required check. The hosted runners have no GPU, so this builds
+# the CUDA backend and runs the sample on a simulated NVIDIA H100
+# (https://github.com/pantheongpu/pantheonsim), then compares its Ex slice with
+# the one printed by the OpenMP sample run on the CPU. A simulator cannot
+# reproduce hardware-specific behavior or timing, so it complements real-GPU
+# testing and does not replace it.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "fdtd-cuda/**"
+      - "fdtd-openmp/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/gpu-sim.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cuda-sim:
+    name: CUDA 13.0, simulated H100
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up the simulated GPU and CUDA toolkit
+        uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+
+      # The simulator runs PTX only (90-virtual) and needs a shared CUDA runtime.
+      - name: Configure CUDA backend
+        run: |
+          cmake -S . -B build-cuda \
+                -DFDTD_BACKEND=CUDA \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc \
+                -DCUDAToolkit_ROOT=/usr/local/cuda-13.0 \
+                -DCMAKE_CUDA_ARCHITECTURES=90-virtual \
+                -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared
+
+      - name: Build CUDA backend
+        run: cmake --build build-cuda -j3
+
+      # The CPU reference is the OpenMP sample, compiled directly so that the
+      # GoogleTest and Kokkos submodules are not needed.
+      - name: Build CPU reference (OpenMP sample)
+        run: |
+          g++ -O2 -std=c++17 -fopenmp \
+              -Ifdtd-openmp/include -Ifdtd-openmp/include/FDTD \
+              fdtd-openmp/src/FDTD/*.cpp fdtd-openmp/perf-tests/sample/sample.cpp \
+              -o sample_cpu
+
+      - name: Run CPU reference
+        run: ./sample_cpu 64 25 | tee cpu.out
+
+      - name: Run CUDA sample on the simulated H100
+        run: vgpu run ./build-cuda/bin/run_cuda 64 25 | tee gpu.out
+
+      # Both programs print the 10x10 Ex slice around the grid centre with
+      # five decimals. Compare the two slices value by value.
+      - name: Compare CUDA result with CPU result
+        run: |
+          python3 - <<'PY'
+          import re, sys
+
+          def slice_of(path):
+              rows = []
+              for line in open(path):
+                  vals = line.split()
+                  if len(vals) == 10 and all(re.fullmatch(r"-?\d+\.\d{5}", v) for v in vals):
+                      rows.append([float(v) for v in vals])
+              return rows
+
+          cpu, gpu = slice_of("cpu.out"), slice_of("gpu.out")
+          if len(cpu) != 10 or len(gpu) != 10:
+              sys.exit(f"expected 10 rows, got cpu={len(cpu)} gpu={len(gpu)}")
+          worst = max(abs(a - b) for rc, rg in zip(cpu, gpu) for a, b in zip(rc, rg))
+          peak = max(abs(a) for r in cpu for a in r)
+          print(f"max abs diff {worst:.5f}, peak |Ex| on CPU {peak:.5f}")
+          if peak < 1e-3:
+              sys.exit("CPU slice is all ~zero; the comparison would be meaningless")
+          if worst > 1e-4 * peak:
+              sys.exit("CUDA and CPU slices differ")
+          PY
